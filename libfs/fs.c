@@ -61,6 +61,30 @@ FileDescriptor fd_arr[FS_OPEN_MAX_COUNT];
 
 /* helper functions section */
 
+/* function that returns the index of file in root 
+   directory based on file descriptor               */
+int get_root_index(int fd)
+{
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (!strcmp((const char*)root_dir[i].fileName,
+		(const char*)fd_arr[fd].fileName))
+			return i;
+	}
+}
+
+/* function that returns the index of the data block
+   in FAT corresponding to the file’s offset          */
+int get_FATindex_offset(int fd)
+{
+	int root_index = get_root_index(fd);
+	uint16_t curr = root_dir[root_index].first_data_blk_index;
+	int num_offset_block = fd_arr[fd].offset / BLOCK_SIZE;
+
+	for (int i = 0; i < num_offset_block; i++)
+		curr = fat[curr];
+	return curr;
+}
+
 // Follow the fat table and clear all data
 int remove_file(int index)
 {
@@ -491,11 +515,8 @@ int fs_stat(int fd)
 		return -1;
 	}
 
-	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (!strcmp((const char*)root_dir[i].fileName, (const char*)fd_arr[fd].fileName))
-			return root_dir[i].size;
-	}
-	return -1;
+	int root_index = get_root_index(fd);
+	return root_dir[root_index].size;
 }
 
 int fs_lseek(int fd, size_t offset)
@@ -559,6 +580,44 @@ int fs_read(int fd, void *buf, size_t count)
 		perror("buf cannot be NULL\n");
 		return -1;
 	}
-	return -1;
+
+	size_t num_bytes_read = 0;
+	size_t file_size = fs_stat(fd);
+	/* Index of where the offset is at in FAT */
+	uint16_t offset_FAT = get_FATindex_offset(fd);
+	/* Mismatches for the first block starting with offset */
+	size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
+	size_t rear_mismatch = 0;
+
+	/* The number of bytes read can be smaller than @count if there are less than
+     * @count bytes until the end of the file (it can even be 0 if the file offset
+     * is at the end of the file)*/
+	count = min(file_size - fd_arr[fd].offset, count);
+	if (count == 0)
+		return num_bytes_read;
+
+	int num_blk_to_read;
+	if ((count + front_mismatch) % BLOCK_SIZE == 0) /* match excatly */
+		num_blk_to_read = (count + front_mismatch) / BLOCK_SIZE;
+	else  /* read one more block to include the last section of data */
+		num_blk_to_read = (count + front_mismatch) / BLOCK_SIZE + 1;
+
+	/* There is at least 1 data block to be read */
+	int i = 1;
+	while (i <= num_blk_to_read) {
+		/* while loop hit the last block */
+		if (i == num_blk_to_read) 
+			rear_mismatch = num_blk_to_read * BLOCK_SIZE - (count + front_mismatch);
+		
+		if (front_mismatch != 0 || rear_mismatch != 0) {
+		/* for either first or last block that doesn't span the whole block */
+			uint8_t bounce_buf[BLOCK_SIZE];
+		    size_t num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
+			block_read(super->data_blk_index + offset_FAT, bounce_buf);
+		}
+
+		i++;
+	}
+	return num_bytes_read;
 }
 
