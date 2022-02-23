@@ -436,36 +436,133 @@ int fs_ls(void)
 int fs_open(const char *filename)
 {
 	/* TODO: Phase 3 */
-	return -1;
+	if (filename == NULL) {
+		perror("file not exist\n");
+		return -1;
+	}
+
+	if (strlen(filename) <= 0 || strlen(filename) > FILENAME_LEN) {
+		perror("filename too short/long\n");
+		return -1;
+	}
+
+	/* there is no file named @filename to open */
+	enum type t = CURR_FILE;
+	if (get_index(t, filename) == -1)
+		return -1;
+	
+	/* there are already %FS_OPEN_MAX_COUNT files currently open */
+	t = FREE_FD;
+	int free_fd_index = get_index(t, filename);
+	if (free_fd_index == -1)
+		return -1;
+	
+	fd_arr[free_fd_index].offset = 0;
+	strcpy((char*)fd_arr[free_fd_index].fileName, filename);
+	fd_arr[free_fd_index].index = free_fd_index;
+	return free_fd_index;
 }
 
 int fs_close(int fd)
 {
 	/* TODO: Phase 3 */
-	return -1;
+	if (fd < 0 || fd >= FD_SIZE) {
+		perror("fd out of bounds\n");
+		return -1;
+	}
+
+	if (fd_arr[fd].fileName[0] == '\0') {
+		perror("fd not currently open\n");
+		return -1;
+	}
+
+	fd_arr[fd].offset = 0;
+	const char* default_file_name = '\0';
+	strcpy((char*)fd_arr[fd].fileName, default_file_name);
+	return 0;
 }
 
 int fs_stat(int fd)
 {
 	/* TODO: Phase 3 */
+	if (fd < 0 || fd >= FD_SIZE) {
+		perror("fd out of bounds\n");
+		return -1;
+	}
+
+	if (fd_arr[fd].fileName[0] == '\0') {
+		perror("fd not currently open\n");
+		return -1;
+	}
+
+	for (int i = 0; i < MAX_ROOT_ENTRIES; i++) {
+		if (!strcmp((const char*)root_dir[i].fileName, (const char*)fd_arr[fd].fileName))
+			return root_dir[i].size;
+	}
 	return -1;
 }
 
 int fs_lseek(int fd, size_t offset)
 {
 	/* TODO: Phase 3 */
-	return -1;
+	if (fd < 0 || fd >= FD_SIZE) {
+		perror("fd out of bounds\n");
+		return -1;
+	}
+
+	if (fd_arr[fd].fileName[0] == '\0') {
+		perror("fd not currently open\n");
+		return -1;
+	}
+
+	/* if @offset is larger than the current file size */
+	if (offset > (long unsigned int)fs_stat(fd)) {
+		perror("offset is larger than the current file size\n");
+		return -1;
+	}
+
+	fd_arr[fd].offset = offset;
+	return 0;
 }
 
 int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
+	if (fd < 0 || fd >= FD_SIZE) {
+		perror("fd out of bounds\n");
+		return -1;
+	}
+
+	if (fd_arr[fd].fileName[0] == '\0') {
+		perror("fd not currently open\n");
+		return -1;
+	}
+
+	if (buf == NULL) {
+		perror("buf cannot be NULL\n");
+		return -1;
+	}
+
 	return -1;
 }
 
 int fs_read(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
+	if (fd < 0 || fd >= FD_SIZE) {
+		perror("fd out of bounds\n");
+		return -1;
+	}
+
+	if (fd_arr[fd].fileName[0] == '\0') {
+		perror("fd not currently open\n");
+		return -1;
+	}
+
+	if (buf == NULL) {
+		perror("buf cannot be NULL\n");
+		return -1;
+	}
 	return -1;
 }
 
