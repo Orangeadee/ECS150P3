@@ -7,11 +7,7 @@
 #include "disk.h"
 #include "fs.h"
 
-#define BLOCK_SIZE 4096
 #define SIGNATURE "ECS150FS"
-#define MAX_ROOT_ENTRIES 128
-#define FD_SIZE 32
-#define FILENAME_LEN 16
 #define FILE_SIZE 4
 #define FAT_EOC 0xFFF
 
@@ -44,7 +40,7 @@ uint16_t *fat = NULL;
 
 /*	Root Directory 		*/
 typedef struct {
-	uint8_t fileName[FILENAME_LEN];
+	uint8_t fileName[FS_FILENAME_LEN];
 	uint32_t size;
 	uint16_t first_data_blk_index;
 	uint8_t unused[10];
@@ -53,13 +49,13 @@ typedef struct {
 /*	File Descriptor		*/
 typedef struct {
 	int offset;
-	uint8_t fileName[FILENAME_LEN];
+	uint8_t fileName[FS_FILENAME_LEN];
 	uint16_t index;
 } FileDescriptor;
 
 SuperBlock *super;
 RootDirectory *root_dir;
-FileDescriptor fd_arr[FD_SIZE];
+FileDescriptor fd_arr[FS_OPEN_MAX_COUNT];
 
 /* TODO: Phase 1 */
 
@@ -93,7 +89,7 @@ int get_index(enum type t, const char* file)
 	switch(t)
 	{
 		case ROOT:
-			for(int i = 0; i < MAX_ROOT_ENTRIES; i++)
+			for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 			{
 				if(root_dir[i].fileName[0] != '\0'){continue;}
 				else
@@ -118,7 +114,7 @@ int get_index(enum type t, const char* file)
 			break;
 		
 		case CURR_FILE:
-			for(int i = 0; i < MAX_ROOT_ENTRIES; i++)
+			for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 			{
 				if(!strcmp(file,(char*)root_dir[i].fileName))
 				{
@@ -128,7 +124,7 @@ int get_index(enum type t, const char* file)
 			}
 
 		case FREE_FD:
-			while(i < FD_SIZE)
+			while(i < FS_OPEN_MAX_COUNT)
 			{
 				char file_ch = fd_arr[i].fileName[0];
 				if(file_ch == '\0')
@@ -150,7 +146,7 @@ int get_ratio(enum type r)
 	{
 		case ROOT:
 			count = 0;
-			for(int i = 0; i < MAX_ROOT_ENTRIES; i++)
+			for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 			{
 				if(root_dir[i].fileName[0] != '\0'){}
 				else // if empty, increment count
@@ -307,7 +303,7 @@ int fs_info(void)
 	printf("data_blk=%d\n", super->data_blk_index);
 	printf("data_blk_count=%d\n", super->amt_blk_data);
 	printf("fat_free_ratio=%d/%d\n", fat_free, super->amt_blk_data);
-	printf("rdir_free_ratio=%d/%d\n", root_free, MAX_ROOT_ENTRIES);
+	printf("rdir_free_ratio=%d/%d\n", root_free, FS_FILE_MAX_COUNT);
 
 	return 0;
 }
@@ -324,14 +320,14 @@ int fs_create(const char *filename)
 		perror("filename too short\n");
 		return -1;
 	}
-	if(strlen(filename) > FILENAME_LEN)
+	if(strlen(filename) > FS_FILENAME_LEN)
 	{
 		perror("filename too long\n");
 		return -1;
 	}
 
 	// loop through root dir to see if filename exists already or not
-	for(int i = 0; i < MAX_ROOT_ENTRIES; i++)
+	for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
 		if(strcmp(filename,(char*)root_dir[i].fileName))
 		{
@@ -376,7 +372,7 @@ int fs_delete(const char *filename)
 		perror("file not exist\n");
 		return -1;
 	}
-	if(strlen(filename) <= 0 || strlen(filename) > FILENAME_LEN)
+	if(strlen(filename) <= 0 || strlen(filename) > FS_FILENAME_LEN)
 	{
 		perror("filename too short/long\n");
 		return -1;
@@ -388,7 +384,7 @@ int fs_delete(const char *filename)
 
 	// go thru file descriptors to see if file is already opened
 	int i = 0;
-	while(i < FD_SIZE)
+	while(i < FS_OPEN_MAX_COUNT)
 	{
 		if(strcmp(filename,(char*)fd_arr[i].fileName))
 		{
@@ -419,7 +415,7 @@ int fs_ls(void)
 	// printing
 	printf("FS Ls:\n");
 	int i = 0;
-	while(i < MAX_ROOT_ENTRIES)
+	while(i < FS_FILE_MAX_COUNT)
 	{
 		if(root_dir[i].fileName[0] != '\0')
 		{
@@ -441,7 +437,7 @@ int fs_open(const char *filename)
 		return -1;
 	}
 
-	if (strlen(filename) <= 0 || strlen(filename) > FILENAME_LEN) {
+	if (strlen(filename) <= 0 || strlen(filename) > FS_FILENAME_LEN) {
 		perror("filename too short/long\n");
 		return -1;
 	}
@@ -466,7 +462,7 @@ int fs_open(const char *filename)
 int fs_close(int fd)
 {
 	/* TODO: Phase 3 */
-	if (fd < 0 || fd >= FD_SIZE) {
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) {
 		perror("fd out of bounds\n");
 		return -1;
 	}
@@ -485,7 +481,7 @@ int fs_close(int fd)
 int fs_stat(int fd)
 {
 	/* TODO: Phase 3 */
-	if (fd < 0 || fd >= FD_SIZE) {
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) {
 		perror("fd out of bounds\n");
 		return -1;
 	}
@@ -495,7 +491,7 @@ int fs_stat(int fd)
 		return -1;
 	}
 
-	for (int i = 0; i < MAX_ROOT_ENTRIES; i++) {
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (!strcmp((const char*)root_dir[i].fileName, (const char*)fd_arr[fd].fileName))
 			return root_dir[i].size;
 	}
@@ -505,7 +501,7 @@ int fs_stat(int fd)
 int fs_lseek(int fd, size_t offset)
 {
 	/* TODO: Phase 3 */
-	if (fd < 0 || fd >= FD_SIZE) {
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) {
 		perror("fd out of bounds\n");
 		return -1;
 	}
@@ -528,7 +524,7 @@ int fs_lseek(int fd, size_t offset)
 int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
-	if (fd < 0 || fd >= FD_SIZE) {
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) {
 		perror("fd out of bounds\n");
 		return -1;
 	}
@@ -549,7 +545,7 @@ int fs_write(int fd, void *buf, size_t count)
 int fs_read(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
-	if (fd < 0 || fd >= FD_SIZE) {
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) {
 		perror("fd out of bounds\n");
 		return -1;
 	}
