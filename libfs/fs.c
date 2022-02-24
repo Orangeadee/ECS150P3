@@ -61,6 +61,7 @@ FileDescriptor fd_arr[FS_OPEN_MAX_COUNT];
 
 /* helper functions section */
 
+/* https://stackoverflow.com/questions/3437404/min-and-max-in-c */
  #define MIN(a,b) \
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
@@ -654,6 +655,9 @@ int fs_read(int fd, void *buf, size_t count)
 		i++;
 	}
 	free(bounce_buf);
+	/* The file offset of the file descriptor is implicitly incremented by the 
+	   number of bytes that were actually read*/
+	fd_arr[fd].offset += num_bytes_read;
 	return num_bytes_read;
 }
 
