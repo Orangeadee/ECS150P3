@@ -36,7 +36,7 @@ typedef struct {
 	uint8_t unused[4079];
 }__attribute__((packed)) SuperBlock;
 
-uint16_t *fat = NULL;
+uint16_t *fat;
 
 /*	Root Directory 		*/
 typedef struct {
@@ -221,20 +221,21 @@ int init_super_check()
 	uint16_t fat_size = super->amt_blk_data*2;
 	assert(super->amt_blk == block_disk_count());
 	num_fat_blk = fat_size/4096;
-	if(fat_size % 4097 == 0){}
+	if(fat_size % 4096 == 0){}
 	else
 	{
 		num_fat_blk++;
 	}
 	if(super->amt_blk_FAT == num_fat_blk && 
-	   super->root_dir_index == ++super->amt_blk_FAT &&
-	   super->data_blk_index == ++super->root_dir_index &&
+	   super->root_dir_index == 1+super->amt_blk_FAT &&
+	   super->data_blk_index == 1+super->root_dir_index &&
 	   super->amt_blk_data == super->amt_blk - super->data_blk_index)
 	{
 		return 0;
 	}
 	else
 	{
+		printf("init error\n");
 		return -1;
 	}
 }
@@ -243,24 +244,23 @@ int init_super_check()
 int fs_mount(const char *diskname)
 {
 	/* TODO: Phase 1 */
-	assert(block_disk_open(diskname) == -1);
+	assert(block_disk_open(diskname) != -1);
 	super = (SuperBlock*)malloc(sizeof(SuperBlock));
-	assert(super);
 	fat = (uint16_t*)malloc(super->amt_blk_FAT*sizeof(SuperBlock));
-	assert(fat);
+	puts("\0"); // if remove this, it gets error
+	
 	root_dir = (RootDirectory*)malloc(sizeof(RootDirectory));
+	assert(super);
+	assert(fat);
 	assert(root_dir);
 
-	assert(block_read(0,super) == -1);
+	assert(block_read(0,super) != -1);
 	// check if signature matches "ECS150FS"
 	int i = 0;
 	while(SIGNATURE[i] != '\0')
 	{
 		char current_ch = super->sig[i];
-		if(current_ch == SIGNATURE[i])
-		{
-			continue;
-		}
+		if(current_ch == SIGNATURE[i]){}
 		else
 		{
 			return -1;
@@ -292,29 +292,15 @@ int fs_umount(void)
 	// check if we can write back super block to disk
 	assert(block_write(0,super) != -1);
 	if(block_disk_count() == -1) return -1;
-	int i = 0;
-	int index = 1;
-	while(i <= super->amt_blk_FAT-1)
-	{
-		// write fat data to disk
-		// use assert() to check if write is succeed or not
-		assert(block_write(index,fat+((BLOCK_SIZE/2)*i)) != -1);
-		i++;
-		index++;
-	}
-	// write root directory to disk and use assert() for checking writing error
-	assert(block_write(super->root_dir_index,root_dir) != -1);
-
-	// free all the allocated variables
-	free(super);
-	if(super)
-		return -1;
-	free(fat);
-	if(fat)
-		return -1;
-	free(root_dir);
-	if(root_dir)
-		return -1;
+	int status;
+	status = block_write(super->root_dir_index,root_dir);
+	if(status == -1) return -1;
+	status = block_write(0,super);
+	if(status == -1) return -1;
+	status = block_write(1,fat);
+	if(status == -1) return -1;
+	status = block_write(2,fat+4096);
+	if(status == -1) return -1;
 	assert(block_disk_close() != -1);
 	return 0;
 }
@@ -334,13 +320,13 @@ int fs_info(void)
 
 	// printing info
 	printf("FS Info:\n");
-	printf("total_blk_count=%d\n", super->amt_blk);
-	printf("fat_blk_count=%d\n", super->amt_blk_FAT);
-	printf("rdir_blk=%d\n", super->root_dir_index);
-	printf("data_blk=%d\n", super->data_blk_index);
-	printf("data_blk_count=%d\n", super->amt_blk_data);
-	printf("fat_free_ratio=%d/%d\n", fat_free, super->amt_blk_data);
-	printf("rdir_free_ratio=%d/%d\n", root_free, FS_FILE_MAX_COUNT);
+	printf("total_blk_count=%d\n", (int)super->amt_blk);
+	printf("fat_blk_count=%d\n", (int)super->amt_blk_FAT);
+	printf("rdir_blk=%d\n", (int)super->root_dir_index);
+	printf("data_blk=%d\n", (int)super->data_blk_index);
+	printf("data_blk_count=%d\n", (int)super->amt_blk_data);
+	printf("fat_free_ratio=%d/%d\n", fat_free, (int)super->amt_blk_data);
+	printf("rdir_free_ratio=%d/%d\n", root_free, (int)FS_FILE_MAX_COUNT);
 
 	return 0;
 }
@@ -366,10 +352,7 @@ int fs_create(const char *filename)
 	// loop through root dir to see if filename exists already or not
 	for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
-		if(strcmp(filename,(char*)root_dir[i].fileName))
-		{
-			continue;
-		}
+		if(strcmp(filename,(char*)root_dir[i].fileName)){}
 		else
 		{
 			return -1;
@@ -570,6 +553,9 @@ int fs_write(int fd, void *buf, size_t count)
 
 	if (buf == NULL) {
 		perror("buf cannot be NULL\n");
+		return -1;
+	}
+	if (count <= 0) {
 		return -1;
 	}
 
