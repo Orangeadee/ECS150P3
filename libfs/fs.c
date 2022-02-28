@@ -138,6 +138,7 @@ int get_index(enum type t, const char* file)
 				}
 				i++;
 			}
+			break;
 	}
 	return index;
 }
@@ -239,6 +240,8 @@ int fs_mount(const char *diskname)
 	block_read(0,super);
 
 	int i = 0;
+
+	// iterate thru to check if signature matches "ECS150FS"
 	while(SIGNATURE[i] != '\0')
 	{
 		if((char)(super->sig[i] != SIGNATURE[i]))
@@ -250,12 +253,15 @@ int fs_mount(const char *diskname)
 	int total_blk = block_disk_count();
 	if(total_blk != super->amt_blk) return -1;
 
+	// make sure block numbers are accurate in super block
 	int status = init_super_check();
 	if(status == -1) return -1;
 
+	// allocate memories for multiple entries of root_dir
 	root_dir = (RootDirectory*)malloc(sizeof(RootDirectory)*FS_FILE_MAX_COUNT);
 	assert(root_dir);
 
+	// read to root dir
 	block_read(super->root_dir_index,root_dir);
 
 	int index;
@@ -268,7 +274,10 @@ int fs_mount(const char *diskname)
 
 	for(int i = 0; i < super->amt_blk_FAT; i++)
 	{
-		block_read(i+1,data);
+		// read in single data block and check if read success
+		status = block_read(i+1,data);
+		if(status == -1) return -1;
+		// then copy to fat and increment index to the next block
 		memcpy(fat+index,data,4096);
 		index += 4096;
 	}
