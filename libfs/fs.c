@@ -48,7 +48,7 @@ typedef struct {
 
 /*	File Descriptor		*/
 typedef struct {
-	int offset;
+	size_t offset;
 	uint8_t fileName[FS_FILENAME_LEN];
 	uint16_t index;
 } FileDescriptor;
@@ -125,6 +125,7 @@ int get_index(enum type t, const char* file)
 					break;
 				}
 			}
+			break;
 
 		case FREE_FD:
 			while(i < FS_OPEN_MAX_COUNT)
@@ -462,6 +463,8 @@ int fs_open(const char *filename)
 	/* there are already %FS_OPEN_MAX_COUNT files currently open */
 	t = FREE_FD;
 	int free_fd_index = get_index(t, filename);
+
+	
 	if (free_fd_index == -1)
 		return -1;
 	
@@ -485,8 +488,9 @@ int fs_close(int fd)
 	}
 
 	fd_arr[fd].offset = 0;
-	char* default_file_name = malloc(1);
+	char* default_file_name = malloc(0);
 	strcpy((char *)fd_arr[fd].fileName, default_file_name);
+	free(default_file_name);
 	return 0;
 }
 
@@ -504,7 +508,7 @@ int fs_stat(int fd)
 	}
 
 	enum type t = CURR_FILE;
-	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+	int root_index = get_index(t, (char*)fd_arr[fd].fileName);
 	return root_dir[root_index].size;
 }
 
@@ -549,63 +553,66 @@ int fs_write(int fd, void *buf, size_t count)
 		return -1;
 	}
 
+	
 	size_t num_bytes_written = 0;
 	// enum type t = CURR_FILE;
 	// int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
 	// size_t file_size = root_dir[root_index].size;
 	/* Index of where the offset is at in terms of DB */
-	uint16_t offset_DB = get_DBindex_offset(fd);
+	// uint16_t offset_DB = get_DBindex_offset(fd);
 
 	if (count == 0)
-		return num_bytes_written = 0;
+		return num_bytes_written;
 
-	int num_blk_to_write;
-	size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
-	size_t rear_mismatch;
-	
-	if ((count + front_mismatch) % BLOCK_SIZE == 0)
-		/* bytes needed to be written match excatly for whole blocks of BLOCK_SIZE */
-		num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE;
-	else
-		/* write one more block to include the last portion of user buf for later 
-		insertion */
-		num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE + 1;
-
-	if (num_blk_to_write > 1)
-		rear_mismatch = 0;
-	
-	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
-	int i = 1;
-	while (i <= num_blk_to_write) {
-		/* While loop hit the last block, update rear mismatch for possible
-		extraction */
-		if (i == num_blk_to_write) 
-			rear_mismatch = num_blk_to_write * BLOCK_SIZE - (count + front_mismatch);
-		
-		/* For block that doesn't span the whole block */
-		if (front_mismatch != 0 || rear_mismatch != 0) {
-		    size_t num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
-			block_read(super->data_blk_index + offset_DB, bounce_buf);
-			memcpy(buf + num_bytes_written, bounce_buf + front_mismatch, num_bytes);
-			num_bytes_written += num_bytes;
-		} else { /* For whole block */
-			block_read(super->data_blk_index + offset_DB, buf + num_bytes_written);
-			num_bytes_written += BLOCK_SIZE;
-		}
-
-		offset_DB = fat[offset_DB];
-
-		/* If there is more than 1 data block to be read, the front mismatch for
-		 all following blocks doesn't exist */
-		if (i == 1)
-			front_mismatch = 0;
-		i++;
-	}
-	free(bounce_buf);
-	/* The file offset of the file descriptor is implicitly incremented by the 
-	   number of bytes that were actually read*/
-	fd_arr[fd].offset += num_bytes_written;
 	return num_bytes_written;
+
+	// int num_blk_to_write;
+	// size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
+	// size_t rear_mismatch;
+	
+	// if ((count + front_mismatch) % BLOCK_SIZE == 0)
+	// 	/* bytes needed to be written match excatly for whole blocks of BLOCK_SIZE */
+	// 	num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE;
+	// else
+	// 	/* write one more block to include the last portion of user buf for later 
+	// 	insertion */
+	// 	num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE + 1;
+
+	// if (num_blk_to_write > 1)
+	// 	rear_mismatch = 0;
+	
+	// void *bounce_buf = (void *)malloc(BLOCK_SIZE);
+	// int i = 1;
+	// while (i <= num_blk_to_write) {
+	// 	/* While loop hit the last block, update rear mismatch for possible
+	// 	extraction */
+	// 	if (i == num_blk_to_write) 
+	// 		rear_mismatch = num_blk_to_write * BLOCK_SIZE - (count + front_mismatch);
+		
+	// 	/* For block that doesn't span the whole block */
+	// 	if (front_mismatch != 0 || rear_mismatch != 0) {
+	// 	    size_t num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
+	// 		block_read(super->data_blk_index + offset_DB, bounce_buf);
+	// 		memcpy(buf + num_bytes_written, bounce_buf + front_mismatch, num_bytes);
+	// 		num_bytes_written += num_bytes;
+	// 	} else { /* For whole block */
+	// 		block_read(super->data_blk_index + offset_DB, buf + num_bytes_written);
+	// 		num_bytes_written += BLOCK_SIZE;
+	// 	}
+
+	// 	offset_DB = fat[offset_DB];
+
+	// 	/* If there is more than 1 data block to be read, the front mismatch for
+	// 	 all following blocks doesn't exist */
+	// 	if (i == 1)
+	// 		front_mismatch = 0;
+	// 	i++;
+	// }
+	// free(bounce_buf);
+	// /* The file offset of the file descriptor is implicitly incremented by the 
+	//    number of bytes that were actually read*/
+	// fd_arr[fd].offset += num_bytes_written;
+	// return num_bytes_written;
 }
 
 int fs_read(int fd, void *buf, size_t count)
@@ -626,10 +633,8 @@ int fs_read(int fd, void *buf, size_t count)
 		return -1;
 	}
 
-	size_t num_bytes_read;
-	enum type t = CURR_FILE;
-	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
-	size_t file_size = root_dir[root_index].size;
+	size_t num_bytes_read = 0;
+	size_t file_size = fs_stat(fd);
 	/* Index of where the offset is at in terms of DB */
 	uint16_t offset_DB = get_DBindex_offset(fd);
 
@@ -638,7 +643,7 @@ int fs_read(int fd, void *buf, size_t count)
      * is at the end of the file)*/
 	count = MIN(file_size - fd_arr[fd].offset, count);
 	if (count == 0)
-		return num_bytes_read = 0;
+		return num_bytes_read;
 	
 	int num_blk_to_read;
 	/* Front mismatch off fd.offset in the first block for later calculation of 
@@ -661,7 +666,7 @@ int fs_read(int fd, void *buf, size_t count)
 
 	/* Use block_read to read data block into buf one block at a time and 
 	extract non-whole block based on the scenarios */ 
-	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
+	uint8_t *bounce_buf = (uint8_t *)malloc(BLOCK_SIZE);
 	int i = 1;
 	while (i <= num_blk_to_read) {
 		/* While loop hit the last block, update rear mismatch for possible
