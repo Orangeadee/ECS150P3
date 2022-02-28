@@ -9,7 +9,7 @@
 
 #define SIGNATURE "ECS150FS"
 #define FILE_SIZE 4
-#define FAT_EOC 0xFFF
+#define FAT_EOC 0xFFFF
 
 enum type {FAT,ROOT,CURR_FILE,FREE_FD};
 
@@ -66,37 +66,6 @@ FileDescriptor fd_arr[FS_OPEN_MAX_COUNT];
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
-
-/* function that returns the index of file in root 
-   directory based on file descriptor
-
-   Returns -1 when there is no match */
-int get_root_index(int fd)
-{
-	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (!strcmp((const char*)root_dir[i].fileName,
-		(const char*)fd_arr[fd].fileName))
-			return i;
-	}
-	return -1;
-}
-
-/* function that returns the index of the DB corresponding
- to the fd’s offset          						*/
-int get_DBindex_offset(int fd)
-{
-	int root_index = get_root_index(fd);
-	if (root_index == -1) {
-		perror("get_root_index failed");
-		exit(1);
-	}
-	uint16_t curr = root_dir[root_index].first_data_blk_index;
-	int num_offset_block = fd_arr[fd].offset / BLOCK_SIZE;
-
-	for (int i = 0; i < num_offset_block; i++)
-		curr = fat[curr];
-	return curr;
-}
 
 // Follow the fat table and clear all data
 int remove_file(int index)
@@ -173,6 +142,24 @@ int get_index(enum type t, const char* file)
 			}
 	}
 	return index;
+}
+
+/* function that returns the index of the DB corresponding
+ to the fd’s offset          						*/
+int get_DBindex_offset(int fd)
+{
+	enum type t = CURR_FILE;
+	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+	if (root_index == -1) {
+		perror("get_root_index failed");
+		exit(1);
+	}
+	uint16_t curr = root_dir[root_index].first_data_blk_index;
+	int num_offset_block = fd_arr[fd].offset / BLOCK_SIZE;
+
+	for (int i = 0; i < num_offset_block; i++)
+		curr = fat[curr];
+	return curr;
 }
 
 // counting number of free fat and free root dir
@@ -511,7 +498,8 @@ int fs_stat(int fd)
 		return -1;
 	}
 
-	int root_index = get_root_index(fd);
+	enum type t = CURR_FILE;
+	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
 	return root_dir[root_index].size;
 }
 
@@ -555,11 +543,61 @@ int fs_write(int fd, void *buf, size_t count)
 		perror("buf cannot be NULL\n");
 		return -1;
 	}
-	if (count <= 0) {
-		return -1;
-	}
 
-	return -1;
+	size_t num_bytes_written = 0;
+	enum type t = CURR_FILE;
+	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+	size_t file_size = root_dir[root_index].size;
+	/* Index of where the offset is at in terms of DB */
+	uint16_t offset_DB = get_DBindex_offset(fd);
+
+	if (count == 0)
+		return num_bytes_written = 0;
+
+	int num_blk_to_write;
+	size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
+	size_t rear_mismatch;
+	
+	if ((count + front_mismatch) % BLOCK_SIZE == 0)
+		/* bytes needed to be written match excatly for whole blocks of BLOCK_SIZE */
+		num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE;
+	else
+		/* write one more block to include the last portion of user buf for later 
+		insertion */
+		num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE + 1;
+
+	if (num_blk_to_write > 1)
+		rear_mismatch = 0;
+	
+	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
+	int i = 1;
+	while (i <= num_blk_to_write) {
+		/* While loop hit the last block, update rear mismatch for possible
+		extraction */
+		if (i == num_blk_to_write) 
+			rear_mismatch = num_blk_to_write * BLOCK_SIZE - (count + front_mismatch);
+		
+		/* For block that doesn't span the whole block */
+		if (front_mismatch != 0 || rear_mismatch != 0) {
+		    size_t num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
+			block_read(super->data_blk_index + offset_DB, bounce_buf);
+			memcpy(buf + num_bytes_written, bounce_buf + front_mismatch, num_bytes);
+			num_bytes_written += num_bytes;
+		} else { /* For whole block */
+			block_read(super->data_blk_index + offset_DB, buf + num_bytes_written);
+			num_bytes_written += BLOCK_SIZE;
+		}
+
+		offset_DB = fat[offset_DB];
+
+		/* If there is more than 1 data block to be read, the front mismatch for
+		 all following blocks doesn't exist */
+		if (i == 1)
+			front_mismatch = 0;
+		i++;
+	}
+	
+	return num_bytes_written;
 }
 
 int fs_read(int fd, void *buf, size_t count)
@@ -581,7 +619,9 @@ int fs_read(int fd, void *buf, size_t count)
 	}
 
 	size_t num_bytes_read;
-	size_t file_size = fs_stat(fd);
+	enum type t = CURR_FILE;
+	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+	size_t file_size = root_dir[root_index].size;
 	/* Index of where the offset is at in terms of DB */
 	uint16_t offset_DB = get_DBindex_offset(fd);
 
@@ -640,7 +680,7 @@ int fs_read(int fd, void *buf, size_t count)
 			front_mismatch = 0;
 		i++;
 	}
-	free(bounce_buf);
+	// free(bounce_buf);
 	/* The file offset of the file descriptor is implicitly incremented by the 
 	   number of bytes that were actually read*/
 	fd_arr[fd].offset += num_bytes_read;
