@@ -70,19 +70,16 @@ FileDescriptor fd_arr[FS_OPEN_MAX_COUNT];
 // Follow the fat table and clear all data
 int remove_file(int index)
 {
-	uint16_t curr = root_dir[index].first_data_blk_index;
+	if(index >= FS_FILE_MAX_COUNT) return -1;
+	uint16_t curr, temp;
+	curr = root_dir[index].first_data_blk_index;
+	root_dir[index].fileName[0] = '\0';
 	while(curr != FAT_EOC)
 	{
-		uint16_t temp = curr;
-		fat[temp] = 0;
-		curr = fat[curr];
+		temp = fat[curr];
+		fat[curr] = 0;
+		curr = temp;
 	}
-
-	// clear all data from root directory
-	fat[curr] = 0;
-	root_dir[index].size = 0;
-	root_dir[index].fileName[0] = '\0';
-	root_dir[index].first_data_blk_index = 0;
 	return 0;
 }
 
@@ -204,25 +201,28 @@ int get_ratio(enum type r)
 // checking errors before initializing
 int init_super_check()
 {
-	int num_fat_blk;
-	uint16_t fat_size = super->amt_blk_data*2;
-	assert(super->amt_blk == block_disk_count());
-	num_fat_blk = fat_size/4096;
-	if(fat_size % 4096 == 0){}
+
+	int num_fat_blk, root_index, data_index;
+	if(block_disk_count() >= 4096)
+	{
+		num_fat_blk = block_disk_count()*2/4096;
+	}
 	else
 	{
-		num_fat_blk++;
+		num_fat_blk = 1;
 	}
-	if(super->amt_blk_FAT == num_fat_blk && 
-	   super->root_dir_index == 1+super->amt_blk_FAT &&
-	   super->data_blk_index == 1+super->root_dir_index &&
-	   super->amt_blk_data == super->amt_blk - super->data_blk_index)
+	root_index = num_fat_blk+1;
+	data_index = num_fat_blk+2;
+
+	if(num_fat_blk == super->amt_blk_FAT &&
+	   root_index == super->root_dir_index &&
+	   data_index == super->data_blk_index &&
+	   super->amt_blk_data == block_disk_count()-num_fat_blk-2)
 	{
 		return 0;
 	}
 	else
 	{
-		printf("init error\n");
 		return -1;
 	}
 }
@@ -232,44 +232,45 @@ int fs_mount(const char *diskname)
 {
 	/* TODO: Phase 1 */
 	assert(block_disk_open(diskname) != -1);
-	super = (SuperBlock*)malloc(sizeof(SuperBlock));
-	fat = (uint16_t*)malloc(super->amt_blk_FAT*sizeof(SuperBlock));
-	puts("\0"); // if remove this, it gets error
-	
-	root_dir = (RootDirectory*)malloc(sizeof(RootDirectory));
+	super = malloc(sizeof(SuperBlock));
 	assert(super);
-	assert(fat);
-	assert(root_dir);
 
-	assert(block_read(0,super) != -1);
-	// check if signature matches "ECS150FS"
+	block_read(0,super);
+
 	int i = 0;
 	while(SIGNATURE[i] != '\0')
 	{
-		char current_ch = super->sig[i];
-		if(current_ch == SIGNATURE[i]){}
-		else
+		if((char)(super->sig[i] != SIGNATURE[i]))
 		{
 			return -1;
 		}
 		i++;
 	}
+	int total_blk = block_disk_count();
+	if(total_blk != super->amt_blk) return -1;
+
 	int status = init_super_check();
-	if(status == -1)
+	if(status == -1) return -1;
+
+	root_dir = (RootDirectory*)malloc(sizeof(RootDirectory)*FS_FILE_MAX_COUNT);
+	assert(root_dir);
+
+	block_read(super->root_dir_index,root_dir);
+
+	int index;
+	uint16_t* data;
+	fat = malloc(sizeof(uint16_t)*super->amt_blk_FAT*4096);
+	assert(fat);
+	index = 0;
+	data = malloc(sizeof(uint16_t)*4096);
+	assert(data);
+
+	for(int i = 0; i < super->amt_blk_FAT; i++)
 	{
-		return -1;
+		block_read(i+1,data);
+		memcpy(fat+index,data,4096);
+		index += 4096;
 	}
-	int index = 1;
-	i = 0;
-	while(i <= super->amt_blk_FAT-1)
-	{
-		// read thru every fat block and make sure they can be read
-		assert(block_read(index,fat+((BLOCK_SIZE/2)*i)) != -1);
-		i++;
-		index++;
-	}
-	// check if we can read the root directory
-	assert(block_read(super->root_dir_index,root_dir) != -1);
 	return 0;
 }
 
@@ -289,6 +290,9 @@ int fs_umount(void)
 	status = block_write(2,fat+4096);
 	if(status == -1) return -1;
 	assert(block_disk_close() != -1);
+	free(root_dir);
+	free(fat);
+	free(super);
 	return 0;
 }
 
@@ -313,7 +317,7 @@ int fs_info(void)
 	printf("data_blk=%d\n", (int)super->data_blk_index);
 	printf("data_blk_count=%d\n", (int)super->amt_blk_data);
 	printf("fat_free_ratio=%d/%d\n", fat_free, (int)super->amt_blk_data);
-	printf("rdir_free_ratio=%d/%d\n", root_free, (int)FS_FILE_MAX_COUNT);
+	printf("rdir_free_ratio=%d/%d\n", root_free, FS_FILE_MAX_COUNT);
 
 	return 0;
 }
@@ -424,6 +428,7 @@ int fs_ls(void)
 	int i = 0;
 	while(i < FS_FILE_MAX_COUNT)
 	{
+		/* if file in root_dir is not empty, print the info of the file */
 		if(root_dir[i].fileName[0] != '\0')
 		{
 			int size = (int)root_dir[i].size;
