@@ -485,8 +485,8 @@ int fs_close(int fd)
 	}
 
 	fd_arr[fd].offset = 0;
-	const char* default_file_name = '\0';
-	strcpy((char*)fd_arr[fd].fileName, default_file_name);
+	char* default_file_name = malloc(1);
+	strcpy((char *)fd_arr[fd].fileName, default_file_name);
 	return 0;
 }
 
@@ -550,9 +550,9 @@ int fs_write(int fd, void *buf, size_t count)
 	}
 
 	size_t num_bytes_written = 0;
-	enum type t = CURR_FILE;
-	int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
-	size_t file_size = root_dir[root_index].size;
+	// enum type t = CURR_FILE;
+	// int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+	// size_t file_size = root_dir[root_index].size;
 	/* Index of where the offset is at in terms of DB */
 	uint16_t offset_DB = get_DBindex_offset(fd);
 
@@ -601,7 +601,10 @@ int fs_write(int fd, void *buf, size_t count)
 			front_mismatch = 0;
 		i++;
 	}
-	
+	free(bounce_buf);
+	/* The file offset of the file descriptor is implicitly incremented by the 
+	   number of bytes that were actually read*/
+	fd_arr[fd].offset += num_bytes_written;
 	return num_bytes_written;
 }
 
@@ -685,7 +688,7 @@ int fs_read(int fd, void *buf, size_t count)
 			front_mismatch = 0;
 		i++;
 	}
-	// free(bounce_buf);
+	free(bounce_buf);
 	/* The file offset of the file descriptor is implicitly incremented by the 
 	   number of bytes that were actually read*/
 	fd_arr[fd].offset += num_bytes_read;
