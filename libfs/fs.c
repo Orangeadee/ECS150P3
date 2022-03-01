@@ -377,11 +377,6 @@ int fs_create(const char *filename)
 	t = FAT;
 	int fat_index = get_index(t,file);
 
-	// create file
-	FILE *fp;
-	fp = fopen(filename, "w");
-	fclose (fp);
-
 	// get file size
 	int fd;
 	struct stat st;
