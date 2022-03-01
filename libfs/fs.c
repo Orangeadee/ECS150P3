@@ -643,23 +643,21 @@ int fs_read(int fd, void *buf, size_t count)
 	}
 
 	size_t num_bytes_read = 0;
-	size_t file_size = fs_stat(fd);
-	/* Index of where the offset is at in terms of DB */
-	uint16_t offset_DB = get_DBindex_offset(fd);
 
+	size_t file_size = fs_stat(fd);
 	/* The number of bytes read can be smaller than @count if there are less than
-     * @count bytes until the end of the file (it can even be 0 if the file offset
-     * is at the end of the file)*/
+		@count bytes until the end of the file (it can even be 0 if the file offset
+		is at the end of the file) */
 	count = MIN(file_size - fd_arr[fd].offset, count);
 	if (count == 0)
 		return num_bytes_read;
 	
-	int num_blk_to_read;
 	/* Front mismatch off fd.offset in the first block for later calculation of 
 	num_blk_to_read */
 	size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
 	size_t rear_mismatch;
 	
+	int num_blk_to_read;
 	if ((count + front_mismatch) % BLOCK_SIZE == 0)
 		/* bytes needed to be read match excatly for whole blocks of BLOCK_SIZE */
 		num_blk_to_read = (count + front_mismatch) / BLOCK_SIZE;
@@ -675,7 +673,10 @@ int fs_read(int fd, void *buf, size_t count)
 
 	/* Use block_read to read data block into buf one block at a time and 
 	extract non-whole block based on the scenarios */ 
-	uint8_t *bounce_buf = (uint8_t *)malloc(BLOCK_SIZE);
+	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
+	size_t num_bytes;
+	/* Index of where the offset is at in terms of DB */
+	uint16_t offset_DB = get_DBindex_offset(fd);
 	int i = 1;
 	while (i <= num_blk_to_read) {
 		/* While loop hit the last block, update rear mismatch for possible
@@ -685,7 +686,7 @@ int fs_read(int fd, void *buf, size_t count)
 		
 		/* For block that doesn't span the whole block */
 		if (front_mismatch != 0 || rear_mismatch != 0) {
-		    size_t num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
+			num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
 			block_read(super->data_blk_index + offset_DB, bounce_buf);
 			memcpy(buf + num_bytes_read, bounce_buf + front_mismatch, num_bytes);
 			num_bytes_read += num_bytes;
@@ -694,12 +695,12 @@ int fs_read(int fd, void *buf, size_t count)
 			num_bytes_read += BLOCK_SIZE;
 		}
 
-		offset_DB = fat[offset_DB];
-
 		/* If there is more than 1 data block to be read, the front mismatch for
 		 all following blocks doesn't exist */
 		if (i == 1)
 			front_mismatch = 0;
+		
+		offset_DB = fat[offset_DB];
 		i++;
 	}
 	free(bounce_buf);
