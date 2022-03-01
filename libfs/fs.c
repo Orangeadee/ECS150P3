@@ -69,6 +69,11 @@ FileDescriptor fd_arr[FS_OPEN_MAX_COUNT];
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
 
+ #define MAX(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
 // Follow the fat table and clear all data
 int remove_file(int index)
 {
@@ -156,9 +161,9 @@ int get_DBindex_offset(int fd)
 		exit(1);
 	}
 	uint16_t curr = root_dir[root_index].first_data_blk_index;
-	int num_offset_block = fd_arr[fd].offset / BLOCK_SIZE;
+	size_t num_offset_block = fd_arr[fd].offset / BLOCK_SIZE;
 
-	for (int i = 0; i < num_offset_block; i++)
+	for (size_t i = 0; i < num_offset_block; i++)
 		curr = fat[curr];
 	return curr;
 }
@@ -331,9 +336,6 @@ int fs_info(void)
 	printf("fat_free_ratio=%d/%d\n", fat_free, (int)super->amt_blk_data);
 	printf("rdir_free_ratio=%d/%d\n", root_free, FS_FILE_MAX_COUNT);
 
-	printf("root_dir[3].fileName:%s\n", root_dir[3].fileName);
-	printf("root_dir[3].first_data_blk_index:%d\n", root_dir[3].first_data_blk_index);
-
 	return 0;
 }
 
@@ -373,6 +375,11 @@ int fs_create(const char *filename)
 	int root_index = get_index(t,file);
 	t = FAT;
 	int fat_index = get_index(t,file);
+
+	// create file
+	FILE *fp;
+	fp = fopen(filename, "w");
+	fclose (fp);
 
 	// get file size
 	int fd;
@@ -603,40 +610,71 @@ int fs_write(int fd, void *buf, size_t count)
 	
 	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
 	size_t num_bytes;
-	uint16_t offset_DB = get_DBindex_offset(fd);
+	int DB_index = get_DBindex_offset(fd);
+	int prev_DB_index = DB_index;
+	enum type t;
+	int root_index;
 	size_t i = 1;
 	while (i <= num_blk_to_write) {
 		/* While loop hit the last block, update rear mismatch for possible
 		extraction */
 		if (i == num_blk_to_write) 
 			rear_mismatch = num_blk_to_write * BLOCK_SIZE - (count + front_mismatch);
+
+		/* Write past the end of the file, the file is automatically extended to hold 
+		the additional bytes */
+		if (DB_index == FAT_EOC) {
+			t = FAT;
+
+			/* get_index() also updates (End-of-Chain) value for FAT array */
+			DB_index = get_index(t, "_placeholder");
+
+			/* Disk is full */
+			if (DB_index == -1)
+				return num_bytes_written;
+
+			/* Link new DB in FAT array */
+			if (prev_DB_index != FAT_EOC)
+				fat[prev_DB_index] = DB_index;
+			
+			/* If we have an empty file, we need to update root dire */ 
+			if (i == 1) {
+				t = CURR_FILE;
+				root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+				root_dir[root_index].first_data_blk_index = DB_index;
+			}
+		}
 		
 		/* For block that doesn't span the whole block */
 		if (front_mismatch != 0 || rear_mismatch != 0) {
 		    num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
-			block_read(super->data_blk_index + offset_DB, bounce_buf);
+			block_read(super->data_blk_index + DB_index, bounce_buf);
 			memcpy(bounce_buf + front_mismatch, buf + num_bytes_written, num_bytes);
 			num_bytes_written += num_bytes;
 		} else { /* For whole block */
-			block_write(super->data_blk_index + offset_DB, buf + num_bytes_written);
+			block_write(super->data_blk_index + DB_index, buf + num_bytes_written);
 			num_bytes_written += BLOCK_SIZE;
 		}
-
-		
 
 		/* If there is more than 1 data block to be written, the front mismatch for
 		 all following blocks doesn't exist */
 		if (i == 1)
 			front_mismatch = 0;
 		
-		offset_DB = fat[offset_DB];
+		prev_DB_index = DB_index;
+		DB_index = fat[DB_index];
 		
 		i++;
 	}
 	free(bounce_buf);
 	/* The file offset of the file descriptor is implicitly incremented by the 
-	   number of bytes that were actually written*/
+	   number of bytes that were actually written */
 	fd_arr[fd].offset += num_bytes_written;
+
+	/* Update root dir size */
+	t = CURR_FILE;
+	root_index = get_index(t, (const char *)fd_arr[fd].fileName);
+	root_dir[root_index].size = MAX(fd_arr[fd].offset, (size_t)fs_stat(fd));
 	return num_bytes_written;
 }
 
@@ -660,11 +698,10 @@ int fs_read(int fd, void *buf, size_t count)
 
 	size_t num_bytes_read = 0;
 
-	size_t file_size = fs_stat(fd);
 	/* The number of bytes read can be smaller than @count if there are less than
 	@count bytes until the end of the file (it can even be 0 if the file offset
 	is at the end of the file) */
-	count = MIN(file_size - fd_arr[fd].offset, count);
+	count = MIN(fs_stat(fd) - fd_arr[fd].offset, count);
 	if (count == 0)
 		return num_bytes_read;
 	
@@ -692,7 +729,7 @@ int fs_read(int fd, void *buf, size_t count)
 	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
 	size_t num_bytes;
 	/* Index of where the offset is at in terms of DB */
-	uint16_t offset_DB = get_DBindex_offset(fd);
+	uint16_t DB_index = get_DBindex_offset(fd);
 	size_t i = 1;
 	while (i <= num_blk_to_read) {
 		/* While loop hit the last block, update rear mismatch for possible
@@ -703,11 +740,11 @@ int fs_read(int fd, void *buf, size_t count)
 		/* For block that doesn't span the whole block */
 		if (front_mismatch != 0 || rear_mismatch != 0) {
 			num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
-			block_read(super->data_blk_index + offset_DB, bounce_buf);
+			block_read(super->data_blk_index + DB_index, bounce_buf);
 			memcpy(buf + num_bytes_read, bounce_buf + front_mismatch, num_bytes);
 			num_bytes_read += num_bytes;
 		} else { /* For whole block */
-			block_read(super->data_blk_index + offset_DB, buf + num_bytes_read);
+			block_read(super->data_blk_index + DB_index, buf + num_bytes_read);
 			num_bytes_read += BLOCK_SIZE;
 		}
 
@@ -716,7 +753,7 @@ int fs_read(int fd, void *buf, size_t count)
 		if (i == 1)
 			front_mismatch = 0;
 		
-		offset_DB = fat[offset_DB];
+		DB_index = fat[DB_index];
 		i++;
 	}
 	free(bounce_buf);
