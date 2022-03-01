@@ -379,7 +379,7 @@ int fs_create(const char *filename)
 
 	// create file
 	FILE *fp;
-	fp = fopen(filename, "a");
+	fp = fopen(filename, "w");
 	fclose (fp);
 
 	// get file size
