@@ -1,8 +1,10 @@
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "disk.h"
 #include "fs.h"
@@ -329,6 +331,9 @@ int fs_info(void)
 	printf("fat_free_ratio=%d/%d\n", fat_free, (int)super->amt_blk_data);
 	printf("rdir_free_ratio=%d/%d\n", root_free, FS_FILE_MAX_COUNT);
 
+	printf("root_dir[3].fileName:%s\n", root_dir[3].fileName);
+	printf("root_dir[3].first_data_blk_index:%d\n", root_dir[3].first_data_blk_index);
+
 	return 0;
 }
 
@@ -369,6 +374,17 @@ int fs_create(const char *filename)
 	t = FAT;
 	int fat_index = get_index(t,file);
 
+	// get file size
+	int fd;
+	struct stat st;
+	fd = open(filename, O_RDONLY);
+	if (fd < 0)
+		perror("open");
+	if (fstat(fd, &st))
+		perror("fstat");
+	if (!S_ISREG(st.st_mode))
+		printf("Not a regular file: %s\n", filename);
+	
 	// if no available entries anymore, return -1
 	if(root_index == -1 || fat_index == -1)
 	{
@@ -380,7 +396,10 @@ int fs_create(const char *filename)
 	{
 		root_dir[root_index].size = 0;
 		strcpy((char*)root_dir[root_index].fileName,filename);
-		root_dir[root_index].first_data_blk_index = fat_index;
+		if (st.st_size == 0)
+			root_dir[root_index].first_data_blk_index = FAT_EOC;
+		else
+			root_dir[root_index].first_data_blk_index = fat_index;
 		return 0;
 	}
 }
@@ -562,66 +581,63 @@ int fs_write(int fd, void *buf, size_t count)
 		return -1;
 	}
 
-	
 	size_t num_bytes_written = 0;
-	// enum type t = CURR_FILE;
-	// int root_index = get_index(t, (const char *)fd_arr[fd].fileName);
-	// size_t file_size = root_dir[root_index].size;
-	/* Index of where the offset is at in terms of DB */
-	// uint16_t offset_DB = get_DBindex_offset(fd);
 
 	if (count == 0)
 		return num_bytes_written;
-
-	return num_bytes_written;
-
-	// int num_blk_to_write;
-	// size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
-	// size_t rear_mismatch;
 	
-	// if ((count + front_mismatch) % BLOCK_SIZE == 0)
-	// 	/* bytes needed to be written match excatly for whole blocks of BLOCK_SIZE */
-	// 	num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE;
-	// else
-	// 	/* write one more block to include the last portion of user buf for later 
-	// 	insertion */
-	// 	num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE + 1;
-
-	// if (num_blk_to_write > 1)
-	// 	rear_mismatch = 0;
+	size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
+	size_t rear_mismatch;
 	
-	// void *bounce_buf = (void *)malloc(BLOCK_SIZE);
-	// int i = 1;
-	// while (i <= num_blk_to_write) {
-	// 	/* While loop hit the last block, update rear mismatch for possible
-	// 	extraction */
-	// 	if (i == num_blk_to_write) 
-	// 		rear_mismatch = num_blk_to_write * BLOCK_SIZE - (count + front_mismatch);
+	size_t num_blk_to_write;
+	if ((count + front_mismatch) % BLOCK_SIZE == 0)
+		/* bytes needed to be written match excatly for whole blocks of BLOCK_SIZE */
+		num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE;
+	else
+		/* write one more block to include the last portion of user buf for later 
+		insertion */
+		num_blk_to_write = (count + front_mismatch) / BLOCK_SIZE + 1;
+
+	if (num_blk_to_write > 1)
+		rear_mismatch = 0;
+	
+	void *bounce_buf = (void *)malloc(BLOCK_SIZE);
+	size_t num_bytes;
+	uint16_t offset_DB = get_DBindex_offset(fd);
+	size_t i = 1;
+	while (i <= num_blk_to_write) {
+		/* While loop hit the last block, update rear mismatch for possible
+		extraction */
+		if (i == num_blk_to_write) 
+			rear_mismatch = num_blk_to_write * BLOCK_SIZE - (count + front_mismatch);
 		
-	// 	/* For block that doesn't span the whole block */
-	// 	if (front_mismatch != 0 || rear_mismatch != 0) {
-	// 	    size_t num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
-	// 		block_read(super->data_blk_index + offset_DB, bounce_buf);
-	// 		memcpy(buf + num_bytes_written, bounce_buf + front_mismatch, num_bytes);
-	// 		num_bytes_written += num_bytes;
-	// 	} else { /* For whole block */
-	// 		block_read(super->data_blk_index + offset_DB, buf + num_bytes_written);
-	// 		num_bytes_written += BLOCK_SIZE;
-	// 	}
+		/* For block that doesn't span the whole block */
+		if (front_mismatch != 0 || rear_mismatch != 0) {
+		    num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
+			block_read(super->data_blk_index + offset_DB, bounce_buf);
+			memcpy(bounce_buf + front_mismatch, buf + num_bytes_written, num_bytes);
+			num_bytes_written += num_bytes;
+		} else { /* For whole block */
+			block_write(super->data_blk_index + offset_DB, buf + num_bytes_written);
+			num_bytes_written += BLOCK_SIZE;
+		}
 
-	// 	offset_DB = fat[offset_DB];
+		
 
-	// 	/* If there is more than 1 data block to be read, the front mismatch for
-	// 	 all following blocks doesn't exist */
-	// 	if (i == 1)
-	// 		front_mismatch = 0;
-	// 	i++;
-	// }
-	// free(bounce_buf);
-	// /* The file offset of the file descriptor is implicitly incremented by the 
-	//    number of bytes that were actually read*/
-	// fd_arr[fd].offset += num_bytes_written;
-	// return num_bytes_written;
+		/* If there is more than 1 data block to be written, the front mismatch for
+		 all following blocks doesn't exist */
+		if (i == 1)
+			front_mismatch = 0;
+		
+		offset_DB = fat[offset_DB];
+		
+		i++;
+	}
+	free(bounce_buf);
+	/* The file offset of the file descriptor is implicitly incremented by the 
+	   number of bytes that were actually written*/
+	fd_arr[fd].offset += num_bytes_written;
+	return num_bytes_written;
 }
 
 int fs_read(int fd, void *buf, size_t count)
@@ -646,8 +662,8 @@ int fs_read(int fd, void *buf, size_t count)
 
 	size_t file_size = fs_stat(fd);
 	/* The number of bytes read can be smaller than @count if there are less than
-		@count bytes until the end of the file (it can even be 0 if the file offset
-		is at the end of the file) */
+	@count bytes until the end of the file (it can even be 0 if the file offset
+	is at the end of the file) */
 	count = MIN(file_size - fd_arr[fd].offset, count);
 	if (count == 0)
 		return num_bytes_read;
@@ -657,7 +673,7 @@ int fs_read(int fd, void *buf, size_t count)
 	size_t front_mismatch = fd_arr[fd].offset % BLOCK_SIZE;
 	size_t rear_mismatch;
 	
-	int num_blk_to_read;
+	size_t num_blk_to_read;
 	if ((count + front_mismatch) % BLOCK_SIZE == 0)
 		/* bytes needed to be read match excatly for whole blocks of BLOCK_SIZE */
 		num_blk_to_read = (count + front_mismatch) / BLOCK_SIZE;
@@ -677,7 +693,7 @@ int fs_read(int fd, void *buf, size_t count)
 	size_t num_bytes;
 	/* Index of where the offset is at in terms of DB */
 	uint16_t offset_DB = get_DBindex_offset(fd);
-	int i = 1;
+	size_t i = 1;
 	while (i <= num_blk_to_read) {
 		/* While loop hit the last block, update rear mismatch for possible
 		extraction */
