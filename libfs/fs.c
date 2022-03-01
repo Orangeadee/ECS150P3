@@ -377,11 +377,6 @@ int fs_create(const char *filename)
 	t = FAT;
 	int fat_index = get_index(t,file);
 
-	// create file
-	// FILE *fp;
-	// fp = fopen(filename, "a");
-	// fclose (fp);
-
 	// get file size
 	int fd;
 	struct stat st;
@@ -655,6 +650,7 @@ int fs_write(int fd, void *buf, size_t count)
 			block_read(super->data_blk_index + DB_index, bounce_buf);
 			memcpy(bounce_buf + front_mismatch, buf + num_bytes_written, num_bytes);
 			num_bytes_written += num_bytes;
+			block_write(super->data_blk_index + DB_index, bounce_buf);
 		} else { /* For whole block */
 			block_write(super->data_blk_index + DB_index, buf + num_bytes_written);
 			num_bytes_written += BLOCK_SIZE;
