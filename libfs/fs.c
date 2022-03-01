@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "disk.h"
 #include "fs.h"
@@ -377,9 +378,9 @@ int fs_create(const char *filename)
 	int fat_index = get_index(t,file);
 
 	// create file
-	FILE *fp;
-	fp = fopen(filename, "w");
-	fclose (fp);
+	// FILE *fp;
+	// fp = fopen(filename, "a");
+	// fclose (fp);
 
 	// get file size
 	int fd;
@@ -405,10 +406,13 @@ int fs_create(const char *filename)
 		strcpy((char*)root_dir[root_index].fileName,filename);
 		if (st.st_size == 0)
 			root_dir[root_index].first_data_blk_index = FAT_EOC;
+			
 		else
 			root_dir[root_index].first_data_blk_index = fat_index;
+		close(fd);
 		return 0;
 	}
+	
 }
 
 int fs_delete(const char *filename)
