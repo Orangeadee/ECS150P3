@@ -655,8 +655,8 @@ int fs_write(int fd, void *buf, size_t count)
 		    num_bytes = BLOCK_SIZE - front_mismatch - rear_mismatch;
 			block_read(super->data_blk_index + DB_index, bounce_buf);
 			memcpy(bounce_buf + front_mismatch, buf + num_bytes_written, num_bytes);
-			num_bytes_written += num_bytes;
 			block_write(super->data_blk_index + DB_index, bounce_buf);
+			num_bytes_written += num_bytes;
 		} else { /* For whole block */
 			block_write(super->data_blk_index + DB_index, buf + num_bytes_written);
 			num_bytes_written += BLOCK_SIZE;
