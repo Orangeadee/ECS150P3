@@ -179,7 +179,7 @@ int get_ratio(enum type r)
 			count = 0;
 			for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 			{
-				if(root_dir[i].fileName[0] != '\0'){}
+				if((char)root_dir[i].fileName[0] != '\0'){}
 				else // if empty, increment count
 				{
 					count++;
@@ -307,10 +307,11 @@ int fs_umount(void)
 	if(status == -1) return -1;
 	status = block_write(2,fat+4096);
 	if(status == -1) return -1;
-	assert(block_disk_close() != -1);
-	free(root_dir);
-	free(fat);
+	
 	free(super);
+	free(fat);
+	free(root_dir);
+	assert(block_disk_close() != -1);
 	return 0;
 }
 
@@ -361,7 +362,7 @@ int fs_create(const char *filename)
 	// loop through root dir to see if filename exists already or not
 	for(int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
-		if(strcmp(filename,(char*)root_dir[i].fileName)){}
+		if(strcmp(filename,(char*)root_dir[i].fileName) != 0){}
 		else
 		{
 			return -1;
@@ -374,6 +375,7 @@ int fs_create(const char *filename)
 	enum type t;
 	t = ROOT;
 	int root_index = get_index(t,file);
+	
 	t = FAT;
 	int fat_index = get_index(t,file);
 
@@ -399,11 +401,15 @@ int fs_create(const char *filename)
 	{
 		root_dir[root_index].size = 0;
 		strcpy((char*)root_dir[root_index].fileName,filename);
+		printf("file name in create: %s, index: %d\n",(char*)root_dir[root_index].fileName,root_index);
+		root_dir[root_index].first_data_blk_index = FAT_EOC; // changed here
+		/*
 		if (st.st_size == 0)
-			root_dir[root_index].first_data_blk_index = FAT_EOC;
+			root_dir[root_index].first_data_blk_index = FAT_EOC; // changed here
 			
 		else
 			root_dir[root_index].first_data_blk_index = fat_index;
+		*/
 		close(fd);
 		return 0;
 	}
@@ -467,7 +473,7 @@ int fs_ls(void)
 		if(root_dir[i].fileName[0] != '\0')
 		{
 			int size = (int)root_dir[i].size;
-			char *fileName = (char*)root_dir[i].fileName;
+			char* fileName = (char*)root_dir[i].fileName;
 			int data_blk_index = (int)root_dir[i].first_data_blk_index;
 			printf("file: %s, size: %d, data_blk: %d\n",fileName,size,data_blk_index);
 		}
