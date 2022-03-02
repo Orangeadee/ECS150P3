@@ -299,13 +299,13 @@ int fs_umount(void)
 	assert(block_write(0,super) != -1);
 	if(block_disk_count() == -1) return -1;
 	int status;
-	status = block_write(super->root_dir_index,root_dir);
-	if(status == -1) return -1;
 	status = block_write(0,super);
 	if(status == -1) return -1;
 	status = block_write(1,fat);
 	if(status == -1) return -1;
 	status = block_write(2,fat+4096);
+	if(status == -1) return -1;
+	status = block_write(super->root_dir_index,root_dir);
 	if(status == -1) return -1;
 	assert(block_disk_close() != -1);
 	free(root_dir);
