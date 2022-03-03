@@ -377,7 +377,7 @@ int fs_create(const char *filename)
 	t = FAT;
 	int fat_index = get_index(t,file);
 
-	// get file size
+	// get file size. Adapted from test_fs.c
 	int fd;
 	struct stat st;
 	fd = open(filename, O_RDONLY);
