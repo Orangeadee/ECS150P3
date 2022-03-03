@@ -401,7 +401,6 @@ int fs_create(const char *filename)
 		strcpy((char*)root_dir[root_index].fileName,filename);
 		if (st.st_size == 0)
 			root_dir[root_index].first_data_blk_index = FAT_EOC;
-			
 		else
 			root_dir[root_index].first_data_blk_index = fat_index;
 		close(fd);
